@@ -1,11 +1,13 @@
 {
-  "name": "godot-server",
+  "name": "godot-ws-server",
   "version": "1.0.0",
+  "description": "Serveur WebSocket pour jeu multijoueur Godot",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "ws": "^8.15.0"
+    "ws": "^8.16.0"
   }
 }
