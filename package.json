@@ -1,7 +1,7 @@
 {
-  "name": "godot-ws-server",
+  "name": "godot-multilobby-server",
   "version": "1.0.0",
-  "description": "Serveur WebSocket pour jeu multijoueur Godot",
+  "description": "Serveur multi-salon pour Godot avec WebSocket",
   "main": "index.js",
   "type": "module",
   "scripts": {
