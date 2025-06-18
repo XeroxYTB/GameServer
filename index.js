@@ -24,18 +24,9 @@ wss.on("connection", (ws) => {
   });
 });
 
-const PORT = process.env.PORT || 8080;
-
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  const hostname =
-    process.env.RAILWAY_STATIC_URL || // Railway
-    process.env.REPL_SLUG && process.env.REPL_OWNER
-      ? `${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-      : "localhost";
-
-  const protocol = hostname.startsWith("localhost") ? "ws" : "wss";
-  const url = `${protocol}://${hostname}${PORT === 80 || hostname !== "localhost" ? "" : `:${PORT}`}`;
-
-  console.log("🚀 Serveur WebSocket lancé !");
-  console.log(`🔗 Adresse WebSocket à utiliser dans Godot : ${url}`);
+  const hostname = process.env.RENDER_EXTERNAL_HOSTNAME || "localhost";
+  const protocol = hostname === "localhost" ? "ws" : "wss";
+  console.log(`🚀 Serveur WebSocket lancé sur : ${protocol}://${hostname}`);
 });
