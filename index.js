@@ -3,47 +3,113 @@ import { WebSocketServer } from 'ws';
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port: PORT });
 
-let nextPeerId = 1;
-const peers = new Map(); // peerId -> WebSocket
+let nextClientId = 1;
+const lobbies = new Map(); // Map<lobbyId, Set<client>>
+const clients = new Map(); // Map<ws, { id, lobby }>
 
-console.log(`✅ Serveur WebSocket lancé sur ws://localhost:${PORT}`);
+console.log(`✅ Serveur WebSocket multi-salon lancé sur ws://localhost:${PORT}`);
 
 wss.on('connection', (ws) => {
-  const peerId = nextPeerId++;
-  peers.set(peerId, ws);
+  const clientId = nextClientId++;
+  console.log(`🟢 Client connecté, ID ${clientId}`);
 
-  console.log(`🟢 Peer connecté : ID ${peerId}`);
-  sendTo(ws, { type: 'id', id: peerId });
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
 
-  // Informer tous les autres de la nouvelle connexion
-  broadcast({ type: 'peer_connected', id: peerId }, peerId);
+      if (msg.type === 'host') {
+        const lobbyId = parseInt(msg.lobby_id);
+        if (isNaN(lobbyId)) return;
 
-  // Relayer les messages entre pairs
-  ws.on('message', (data) => {
-    // On suppose que Godot envoie du binaire
-    for (const [otherId, client] of peers) {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        client.send(data);
+        if (!lobbies.has(lobbyId)) {
+          lobbies.set(lobbyId, new Set());
+        }
+
+        clients.set(ws, { id: clientId, lobby: lobbyId });
+        lobbies.get(lobbyId).add(ws);
+
+        send(ws, {
+          type: 'host_confirmed',
+          client_id: clientId,
+          lobby_id: lobbyId,
+        });
+
+        broadcast_lobby_list(lobbyId);
+        console.log(`📦 Salon ${lobbyId} hébergé par ${clientId}`);
       }
+
+      else if (msg.type === 'join') {
+        const lobbyId = parseInt(msg.lobby_id);
+        if (!lobbies.has(lobbyId)) {
+          send(ws, { type: 'error', message: 'Salon inexistant.' });
+          return;
+        }
+
+        clients.set(ws, { id: clientId, lobby: lobbyId });
+        lobbies.get(lobbyId).add(ws);
+
+        send(ws, {
+          type: 'join_confirmed',
+          client_id: clientId,
+          lobby_id: lobbyId,
+        });
+
+        broadcast_lobby_list(lobbyId);
+        console.log(`👤 Client ${clientId} rejoint salon ${lobbyId}`);
+      }
+
+      // Transfert des paquets binaires Godot
+      else if (msg.type === 'relay' && clients.has(ws)) {
+        const lobbyId = clients.get(ws).lobby;
+        for (const peer of lobbies.get(lobbyId)) {
+          if (peer !== ws && peer.readyState === peer.OPEN) {
+            peer.send(msg.data); // Peut être du texte ou du binaire
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error('❌ Erreur dans le message :', err);
     }
   });
 
   ws.on('close', () => {
-    console.log(`🔴 Peer déconnecté : ID ${peerId}`);
-    peers.delete(peerId);
-    broadcast({ type: 'peer_disconnected', id: peerId });
+    if (!clients.has(ws)) return;
+    const { id, lobby } = clients.get(ws);
+    clients.delete(ws);
+
+    const set = lobbies.get(lobby);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) {
+        lobbies.delete(lobby);
+        console.log(`❌ Salon ${lobby} fermé (dernier joueur quitté)`);
+      } else {
+        broadcast_lobby_list(lobby);
+      }
+    }
+
+    console.log(`🔴 Client ${id} déconnecté`);
   });
 });
 
-function sendTo(ws, obj) {
+function send(ws, obj) {
   ws.send(JSON.stringify(obj));
 }
 
-function broadcast(obj, excludeId = null) {
-  const msg = JSON.stringify(obj);
-  for (const [id, client] of peers) {
-    if (id !== excludeId && client.readyState === client.OPEN) {
-      client.send(msg);
-    }
+function broadcast_lobby_list(lobbyId) {
+  const lobby = lobbies.get(lobbyId);
+  if (!lobby) return;
+  const players = [];
+  for (const client of lobby) {
+    const { id } = clients.get(client);
+    players.push(id);
+  }
+  for (const client of lobby) {
+    send(client, {
+      type: 'lobby_update',
+      players,
+      lobby_id: lobbyId,
+    });
   }
 }
