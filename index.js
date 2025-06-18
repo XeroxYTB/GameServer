@@ -1,32 +1,49 @@
-const WebSocket = require("ws");
-const http = require("http");
+import { WebSocketServer } from 'ws';
 
-const server = http.createServer();
-const wss = new WebSocket.Server({ server });
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocketServer({ port: PORT });
 
-const clients = new Set();
+let nextPeerId = 1;
+const peers = new Map(); // peerId -> WebSocket
 
-wss.on("connection", (ws) => {
-  clients.add(ws);
-  console.log("✅ Client connecté");
+console.log(`✅ Serveur WebSocket lancé sur ws://localhost:${PORT}`);
 
-  ws.on("message", (message) => {
-    for (let client of clients) {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
+wss.on('connection', (ws) => {
+  const peerId = nextPeerId++;
+  peers.set(peerId, ws);
+
+  console.log(`🟢 Peer connecté : ID ${peerId}`);
+  sendTo(ws, { type: 'id', id: peerId });
+
+  // Informer tous les autres de la nouvelle connexion
+  broadcast({ type: 'peer_connected', id: peerId }, peerId);
+
+  // Relayer les messages entre pairs
+  ws.on('message', (data) => {
+    // On suppose que Godot envoie du binaire
+    for (const [otherId, client] of peers) {
+      if (client !== ws && client.readyState === ws.OPEN) {
+        client.send(data);
       }
     }
   });
 
-  ws.on("close", () => {
-    clients.delete(ws);
-    console.log("❌ Client déconnecté");
+  ws.on('close', () => {
+    console.log(`🔴 Peer déconnecté : ID ${peerId}`);
+    peers.delete(peerId);
+    broadcast({ type: 'peer_disconnected', id: peerId });
   });
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-  const hostname = process.env.RENDER_EXTERNAL_HOSTNAME || "localhost";
-  const protocol = hostname === "localhost" ? "ws" : "wss";
-  console.log(`🚀 Serveur WebSocket lancé sur : ${protocol}://${hostname}`);
-});
+function sendTo(ws, obj) {
+  ws.send(JSON.stringify(obj));
+}
+
+function broadcast(obj, excludeId = null) {
+  const msg = JSON.stringify(obj);
+  for (const [id, client] of peers) {
+    if (id !== excludeId && client.readyState === client.OPEN) {
+      client.send(msg);
+    }
+  }
+}
